@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
-import static br.com.saga_orquestrado.product_validation.core.enums.ESagaStatus.SUCCESS;
+import static br.com.saga_orquestrado.product_validation.core.enums.ESagaStatus.*;
 import static org.springframework.util.ObjectUtils.isEmpty;
 
 @Slf4j
@@ -108,5 +108,29 @@ public class ProductValidationService {
     }
 
     private void handleFailCurrentNotExecuted(Event event, String message) {
+        event.setStatus(ROLLBACK_PENDING);
+        event.setSource(CURRENT_SOURCE);
+        addHistory(event, "Fail to validate products: ".concat(message));
+    }
+
+    public void rollbackEvent(Event event) {
+        changeValidationFail(event);
+
+        event.setStatus(FAIL);
+        event.setSource(CURRENT_SOURCE);
+        addHistory(event, "Rollback executed on product validation!");
+        producer.sendEvent(jsonUtil.toJson(event));
+    }
+
+    private void changeValidationFail(Event event) {
+        validationRepository
+                .findByOrderIdAndTransactionId(event.getPayload().getId(), event.getPayload().getTransactionId())
+                .ifPresentOrElse(
+                        validation -> {
+                            validation.setSuccess(false);
+                            validationRepository.save(validation);
+                        },
+                        () -> createValidation(event, false)
+                );
     }
 }
